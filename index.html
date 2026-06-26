@@ -50,6 +50,10 @@
   #split-divider {
     position:absolute; top:0; left:50%; width:2px; height:100%; background:rgba(255,255,255,0.25); z-index:5; pointer-events:none;
   }
+  #ingame-credit {
+    position:absolute; bottom:10px; right:14px; color:rgba(255,255,255,0.45);
+    font-size:0.8em; text-shadow:0 1px 4px rgba(0,0,0,0.8); z-index:5; pointer-events:none;
+  }
 </style>
 </head>
 <body>
@@ -62,6 +66,7 @@
 </div>
 <div id="hud-center" class="hidden"></div>
 <div id="split-divider" class="hidden"></div>
+<div id="ingame-credit" class="hidden">By Amani Kalua</div>
 <div id="elim-left" class="eliminated hidden">ELIMINATED</div>
 <div id="elim-right" class="eliminated hidden">ELIMINATED</div>
 
@@ -76,7 +81,7 @@
     <b>1 Player:</b> Strafe with A/D or Left/Right. Jump with W, Up, Space, or Enter.<br>
     <b>2 Players:</b> Player 1 strafes with <b>A/D</b>, jumps with <b>W</b>. Player 2 strafes with <b>Left/Right</b>, jumps with <b>Up</b>.
   </div>
-  <p class="credit">by Amani Kalua</p>
+  <p class="credit">By Amani Kalua</p>
 </div>
 
 <div id="gameover" class="overlay hidden">
@@ -113,6 +118,7 @@
   const hudRight = document.getElementById('hud-right');
   const hudCenter = document.getElementById('hud-center');
   const splitDivider = document.getElementById('split-divider');
+  const ingameCredit = document.getElementById('ingame-credit');
   const elimLeft = document.getElementById('elim-left');
   const elimRight = document.getElementById('elim-right');
   const goScores = document.getElementById('go-scores');
@@ -676,6 +682,7 @@
     gameOverScreen.classList.add('hidden');
     hud.classList.remove('hidden');
     hudCenter.classList.remove('hidden');
+    ingameCredit.classList.remove('hidden');
 
     running = true;
     lastTime = performance.now();
@@ -702,6 +709,7 @@
     hud.classList.add('hidden');
     hudCenter.classList.add('hidden');
     splitDivider.classList.add('hidden');
+    ingameCredit.classList.add('hidden');
     elimLeft.classList.add('hidden');
     elimRight.classList.add('hidden');
     gameOverScreen.classList.remove('hidden');
