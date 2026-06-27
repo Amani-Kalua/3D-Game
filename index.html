@@ -64,6 +64,14 @@
     position:absolute; bottom:10px; right:14px; color:rgba(255,255,255,0.45);
     font-size:0.8em; text-shadow:0 1px 4px rgba(0,0,0,0.8); z-index:5; pointer-events:none;
   }
+  #audio-controls {
+    position:absolute; top:14px; right:14px; z-index:20; display:flex; align-items:center; gap:10px;
+    background:rgba(43,58,103,0.55); border:1px solid rgba(79,209,255,0.4); color:#cfe3ff;
+    font-size:0.85em; padding:8px 14px; border-radius:8px;
+  }
+  #btn-mute { background:none; border:none; color:#cfe3ff; font-size:1em; padding:0; cursor:pointer; white-space:nowrap; }
+  #btn-mute:hover { color:#fff; }
+  #volume-slider { width:80px; cursor:pointer; accent-color:#4fd1ff; }
 </style>
 </head>
 <body>
@@ -79,6 +87,10 @@
 <div id="ingame-credit" class="hidden">By Amani Kalua</div>
 <div id="elim-left" class="eliminated hidden">ELIMINATED</div>
 <div id="elim-right" class="eliminated hidden">ELIMINATED</div>
+<div id="audio-controls">
+  <button id="btn-mute" type="button">Sound: On</button>
+  <input id="volume-slider" type="range" min="0" max="100" value="70">
+</div>
 
 <div id="home" class="overlay">
   <h1>INFINITE PLATFORMER</h1>
@@ -170,6 +182,146 @@
   function hash01(x, z, seed) {
     let n = Math.sin(x * 12.9898 + z * 78.233 + seed * 37.719) * 43758.5453;
     return n - Math.floor(n);
+  }
+
+  // ---------- Retro audio (synthesized, no audio files) ----------
+  let audioCtx = null;
+  let masterGain = null;
+  let delayNode = null;
+  let muted = localStorage.getItem('muted') === '1';
+  let volume = parseFloat(localStorage.getItem('volume'));
+  if (isNaN(volume)) volume = 0.7;
+
+  function ensureAudio() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    masterGain = audioCtx.createGain();
+    masterGain.gain.value = muted ? 0 : volume;
+    masterGain.connect(audioCtx.destination);
+
+    // a slow feedback delay gives the music a spacey, echoing trail
+    delayNode = audioCtx.createDelay();
+    delayNode.delayTime.value = 0.55;
+    const feedback = audioCtx.createGain();
+    feedback.gain.value = 0.4;
+    delayNode.connect(feedback);
+    feedback.connect(delayNode);
+    delayNode.connect(masterGain);
+  }
+
+  function applyGain() {
+    if (masterGain) masterGain.gain.value = muted ? 0 : volume;
+  }
+
+  function tone(freq, startTime, dur, type, vol, slideTo, wet) {
+    if (!audioCtx) return;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, startTime);
+    if (slideTo) osc.frequency.exponentialRampToValueAtTime(slideTo, startTime + dur);
+    gain.gain.setValueAtTime(0.0001, startTime);
+    gain.gain.exponentialRampToValueAtTime(vol, startTime + Math.min(0.06, dur * 0.3));
+    gain.gain.exponentialRampToValueAtTime(0.0001, startTime + dur);
+    osc.connect(gain);
+    gain.connect(masterGain);
+    if (wet) {
+      const wetGain = audioCtx.createGain();
+      wetGain.gain.value = wet;
+      gain.connect(wetGain);
+      wetGain.connect(delayNode);
+    }
+    osc.start(startTime);
+    osc.stop(startTime + dur);
+  }
+
+  function playJumpSfx() {
+    ensureAudio();
+    const t = audioCtx.currentTime;
+    tone(220, t, 0.12, 'square', 0.07, 720);
+  }
+  function playScoreTickSfx() {
+    ensureAudio();
+    const t = audioCtx.currentTime;
+    tone(880, t, 0.06, 'triangle', 0.05);
+  }
+  function playDeathSfx() {
+    ensureAudio();
+    const t = audioCtx.currentTime;
+    tone(420, t, 0.45, 'sawtooth', 0.08, 60);
+  }
+  function playClickSfx() {
+    ensureAudio();
+    const t = audioCtx.currentTime;
+    tone(600, t, 0.05, 'square', 0.05);
+  }
+
+  // a slow, sparse ambient space theme: a sustained low drone plus an
+  // echoing bell-like arpeggio drifting over it, rather than an upbeat tune
+  class SpaceAmbient {
+    constructor() {
+      this.arp = [220, 261, 329, 261, 293, 349, 392, 349,
+                  220, 261, 329, 392, 349, 329, 261, 220];
+      this.bass = [110, 110, 98, 98, 110, 110, 87, 87,
+                   110, 110, 98, 98, 87, 87, 110, 110];
+      this.droneRoots = [110, 110, 98, 98, 87, 87, 98, 98];
+      this.stepDur = 0.28;
+      this.stepIndex = 0;
+      this.droneIndex = 0;
+      this.nextTime = 0;
+      this.nextDroneTime = 0;
+      this.timer = null;
+      this.playing = false;
+    }
+    start() {
+      if (this.playing) return;
+      ensureAudio();
+      this.playing = true;
+      this.stepIndex = 0;
+      this.droneIndex = 0;
+      this.nextTime = audioCtx.currentTime + 0.1;
+      this.nextDroneTime = this.nextTime;
+      this.scheduleLoop();
+    }
+    stop() {
+      this.playing = false;
+      if (this.timer) clearTimeout(this.timer);
+    }
+    scheduleLoop() {
+      if (!this.playing) return;
+      const horizon = audioCtx.currentTime + 0.3;
+      while (this.nextTime < horizon) {
+        const i = this.stepIndex % this.arp.length;
+        tone(this.arp[i], this.nextTime, this.stepDur * 0.9, 'triangle', 0.06, null, 0.35);
+        if (i % 2 === 0) tone(this.bass[i], this.nextTime, this.stepDur * 1.8, 'square', 0.04, null, 0.15);
+        this.nextTime += this.stepDur;
+        this.stepIndex++;
+      }
+      const droneDur = this.stepDur * 16;
+      while (this.nextDroneTime < horizon) {
+        const root = this.droneRoots[this.droneIndex % this.droneRoots.length];
+        tone(root, this.nextDroneTime, droneDur * 1.05, 'sine', 0.05, null, 0.2);
+        tone(root * 1.5, this.nextDroneTime, droneDur * 1.05, 'sine', 0.025, null, 0.2);
+        this.nextDroneTime += droneDur;
+        this.droneIndex++;
+      }
+      this.timer = setTimeout(() => this.scheduleLoop(), 80);
+    }
+  }
+  const chiptune = new SpaceAmbient();
+
+  function setMuted(value) {
+    muted = value;
+    localStorage.setItem('muted', muted ? '1' : '0');
+    applyGain();
+    const btn = document.getElementById('btn-mute');
+    if (btn) btn.textContent = muted ? 'Sound: Off' : 'Sound: On';
+  }
+
+  function setVolume(value) {
+    volume = Math.max(0, Math.min(1, value));
+    localStorage.setItem('volume', String(volume));
+    applyGain();
   }
 
   function randomPalette() {
@@ -607,6 +759,7 @@
       if (this.onGround && this.keyDown(this.scheme.jump)) {
         this.velocity.y = JUMP_VEL;
         this.onGround = false;
+        playJumpSfx();
       }
 
       this.velocity.y += GRAVITY * dt;
@@ -632,7 +785,9 @@
         return;
       }
 
-      this.score = Math.max(this.score, Math.floor(this.player.position.z));
+      const newScore = Math.max(this.score, Math.floor(this.player.position.z));
+      if (Math.floor(newScore / 25) > Math.floor(this.score / 25)) playScoreTickSfx();
+      this.score = newScore;
 
       this.updateChunks();
 
@@ -733,10 +888,13 @@
     running = true;
     lastTime = performance.now();
     requestAnimationFrame(loop);
+    chiptune.start();
   }
 
   function endGame() {
     running = false;
+    chiptune.stop();
+    playDeathSfx();
     let html = '';
     if (mode === '1p') {
       const score = worlds[0].score;
@@ -827,14 +985,28 @@
   }
 
   // ---------- UI wiring ----------
-  document.getElementById('btn-1p').addEventListener('click', () => { resize(); startGame('1p'); resize(); });
-  document.getElementById('btn-2p').addEventListener('click', () => { resize(); startGame('2p'); resize(); });
-  document.getElementById('btn-retry').addEventListener('click', () => { resize(); startGame(mode); resize(); });
+  document.getElementById('btn-1p').addEventListener('click', () => { playClickSfx(); resize(); startGame('1p'); resize(); });
+  document.getElementById('btn-2p').addEventListener('click', () => { playClickSfx(); resize(); startGame('2p'); resize(); });
+  document.getElementById('btn-retry').addEventListener('click', () => { playClickSfx(); resize(); startGame(mode); resize(); });
   document.getElementById('btn-home').addEventListener('click', () => {
+    playClickSfx();
     gameOverScreen.classList.add('hidden');
     homeScreen.classList.remove('hidden');
     renderLeaderboards();
   });
+  document.getElementById('btn-mute').addEventListener('click', () => {
+    ensureAudio();
+    setMuted(!muted);
+    if (!muted) playClickSfx();
+  });
+  const volumeSlider = document.getElementById('volume-slider');
+  volumeSlider.value = String(Math.round(volume * 100));
+  volumeSlider.addEventListener('input', () => {
+    ensureAudio();
+    setVolume(volumeSlider.value / 100);
+    if (muted) setMuted(false);
+  });
+  setMuted(muted);
 
   renderLeaderboards();
   resize();
