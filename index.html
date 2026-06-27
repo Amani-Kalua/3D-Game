@@ -31,6 +31,16 @@
   .controls-hint b { color:#cfe3ff; }
   .credit { margin-top:1.2em; color:#5a6f99; font-size:0.85em; letter-spacing:0.5px; }
 
+  .leaderboard-row { display:flex; gap:32px; justify-content:center; margin-top:2em; flex-wrap:wrap; }
+  .leaderboard {
+    background:rgba(43,58,103,0.25); border:1px solid rgba(79,209,255,0.25); border-radius:12px;
+    padding:16px 28px; min-width:200px;
+  }
+  .leaderboard h3 { margin:0 0 10px 0; color:#cfe3ff; font-size:1em; text-align:center; }
+  .leaderboard ol { margin:0; padding:0 0 0 1.4em; text-align:left; color:#9fb3d9; font-size:0.95em; }
+  .leaderboard li { margin:4px 0; }
+  .leaderboard li.empty { list-style:none; margin-left:-1.4em; color:#5a6f99; font-style:italic; }
+
   #gameover h1 { color:#ff5d6c; text-shadow:0 0 20px #ff5d6c; }
   .score-line { font-size:1.4em; margin:6px 0; }
   .score-line.high { color:#ffd76a; }
@@ -81,6 +91,16 @@
     <b>1 Player:</b> Strafe with A/D or Left/Right. Jump with W, Up, Space, or Enter.<br>
     <b>2 Players:</b> Player 1 strafes with <b>A/D</b>, jumps with <b>W</b>. Player 2 strafes with <b>Left/Right</b>, jumps with <b>Up</b>.
   </div>
+  <div class="leaderboard-row">
+    <div class="leaderboard">
+      <h3>Top 5 &mdash; 1 Player</h3>
+      <ol id="lb-1p"></ol>
+    </div>
+    <div class="leaderboard">
+      <h3>Top 5 &mdash; 2 Player</h3>
+      <ol id="lb-2p"></ol>
+    </div>
+  </div>
   <p class="credit">By Amani Kalua</p>
 </div>
 
@@ -129,7 +149,9 @@
   const TRAIL_CHUNKS = 1;        // chunks kept behind the player
   const SUBLANES = [-2.2, 0, 2.2];
   const SUBLANE_HALF_WIDTH = 1.15; // >= half the 2.2 lane spacing so adjacent platforms touch with no collision gap
-  const HOLE_CHANCE = 0.45;
+  const HOLE_CHANCE_START = 0.45;
+  const HOLE_CHANCE_END = 0.65;
+  const HOLE_CHANCE_RAMP_ROWS = 1000; // rows over which hole chance climbs from start to end
   const GRAVITY = -32;
   const JUMP_VEL = 13;
   const BASE_FORWARD_SPEED = 8.5;
@@ -505,7 +527,8 @@
     rowPresent(row, laneIndex) {
       if (row <= 1) return true; // safe start
       if (laneIndex === Math.floor(hash01(row, 99, this.seed) * SUBLANES.length)) return true; // guaranteed safe lane
-      return hash01(row, laneIndex * 7 + 1, this.seed) > HOLE_CHANCE;
+      const holeChance = Math.min(HOLE_CHANCE_END, HOLE_CHANCE_START + (row / HOLE_CHANCE_RAMP_ROWS) * (HOLE_CHANCE_END - HOLE_CHANCE_START));
+      return hash01(row, laneIndex * 7 + 1, this.seed) > holeChance;
     }
 
     rowHeight(row) {
@@ -653,6 +676,29 @@
     return Math.max(cur, score);
   }
 
+  const LEADERBOARD_SIZE = 5;
+  function getLeaderboard(key) {
+    try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { return []; }
+  }
+  function addToLeaderboard(key, score) {
+    const list = getLeaderboard(key);
+    list.push(score);
+    list.sort((a, b) => b - a);
+    localStorage.setItem(key, JSON.stringify(list.slice(0, LEADERBOARD_SIZE)));
+  }
+  function renderLeaderboard(key, listEl) {
+    const list = getLeaderboard(key).slice().sort((a, b) => b - a).slice(0, LEADERBOARD_SIZE);
+    if (list.length === 0) {
+      listEl.innerHTML = '<li class="empty">No runs yet</li>';
+      return;
+    }
+    listEl.innerHTML = list.map(score => `<li>${score}</li>`).join('');
+  }
+  function renderLeaderboards() {
+    renderLeaderboard('lb_1p', document.getElementById('lb-1p'));
+    renderLeaderboard('lb_2p', document.getElementById('lb-2p'));
+  }
+
   function startGame(selectedMode) {
     mode = selectedMode;
     worlds.forEach(w => w.dispose());
@@ -695,12 +741,14 @@
     if (mode === '1p') {
       const score = worlds[0].score;
       const hs = setHighScoreIfBetter('hs_1p', score);
+      addToLeaderboard('lb_1p', score);
       html += `<div class="score-line">Score: ${score}</div>`;
       html += `<div class="score-line high">High Score: ${hs}</div>`;
     } else {
       const s1 = worlds[0].score, s2 = worlds[1].score;
       const best = Math.max(s1, s2);
       const hs = setHighScoreIfBetter('hs_2p', best);
+      addToLeaderboard('lb_2p', best);
       html += `<div class="score-line">Player 1 (WASD) Score: ${s1}</div>`;
       html += `<div class="score-line">Player 2 (Arrows) Score: ${s2}</div>`;
       html += `<div class="score-line high">High Score: ${hs}</div>`;
@@ -785,8 +833,10 @@
   document.getElementById('btn-home').addEventListener('click', () => {
     gameOverScreen.classList.add('hidden');
     homeScreen.classList.remove('hidden');
+    renderLeaderboards();
   });
 
+  renderLeaderboards();
   resize();
 })();
 </script>
